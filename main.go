@@ -1,44 +1,61 @@
 package main
 
 import (
-	"context"
-	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/log"
 	httptransport "github.com/go-kit/kit/transport/http"
 	"net/http"
 	"os"
+	"time"
 )
 
-func loggingMiddleware(logger log.Logger) endpoint.Middleware {
-	return func(next endpoint.Endpoint) endpoint.Endpoint {
-		return func(ctx context.Context, request interface{}) (response interface{}, err error) {
-			logger.Log("msg", "calling endpoint")
-			defer logger.Log("msg", "called endpoint")
-			return next(ctx, request)
-		}
-	}
+type loggingMiddleware struct {
+	logger log.Logger
+	next   StringService
+}
+
+func (mw loggingMiddleware) Uppercase(s string) (output string, err error) {
+	defer func(begin time.Time) {
+		mw.logger.Log(
+			"method", "uppercase",
+			"input", s,
+			"output", output,
+			"err", err,
+			"took", time.Since(begin),
+		)
+	}(time.Now())
+
+	output, err = mw.next.Uppercase(s)
+	return
+}
+
+func (mw loggingMiddleware) Count(s string) (n int) {
+	defer func(begin time.Time) {
+		mw.logger.Log(
+			"method", "count",
+			"input", s,
+			"n", n,
+			"took", time.Since(begin),
+		)
+	}(time.Now())
+
+	n = mw.next.Count(s)
+	return
 }
 
 func main() {
 	logger := log.NewLogfmtLogger(os.Stderr)
 
-	svc := stringService{}
-
-	var uppercase endpoint.Endpoint
-	uppercase = makeUppercaseEndpoint(svc)
-	uppercase = loggingMiddleware(log.With(logger, "method", "uppercase"))(uppercase)
-
-	var count endpoint.Endpoint
-	count = makeCountEndpoint(svc)
-	count = loggingMiddleware(log.With(logger, "method", "count"))(count)
+	var svc StringService
+	svc = stringService{}
+	svc = loggingMiddleware{logger, svc}
 
 	uppercaseHandler := httptransport.NewServer(
-		uppercase,
+		makeUppercaseEndpoint(svc),
 		decodeUppercaseRequest,
 		encodeResponse)
 
 	countHandler := httptransport.NewServer(
-		count,
+		makeCountEndpoint(svc),
 		decodeCountRequest,
 		encodeResponse)
 
